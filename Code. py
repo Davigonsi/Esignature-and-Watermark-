@@ -1,0 +1,309 @@
+import streamlit as st
+from PIL import Image, ImageDraw, ImageFont
+import io
+import base64
+
+st.set_page_config(page_title="Watermark & E-Signature App", layout="wide")
+
+# Custom CSS
+st.markdown("""
+    <style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: bold;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown('<p class="main-header">📄 Watermark & E-Signature Application</p>', unsafe_allow_html=True)
+
+# Sidebar for navigation
+app_mode = st.sidebar.selectbox("Choose Application", 
+                                ["Watermark Tool", "E-Signature Tool"])
+
+if app_mode == "Watermark Tool":
+    st.header("🖼️ Image Watermark Tool")
+    st.write("Add text or image watermarks to your images")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        uploaded_file = st.file_uploader("Upload Image", type=['png', 'jpg', 'jpeg'])
+        
+        if uploaded_file:
+            image = Image.open(uploaded_file).convert("RGBA")
+            st.image(image, caption="Original Image", use_container_width=True)
+            
+            watermark_type = st.radio("Watermark Type", ["Text", "Image"])
+            
+            if watermark_type == "Text":
+                watermark_text = st.text_input("Watermark Text", "CONFIDENTIAL")
+                font_size = st.slider("Font Size", 20, 200, 60)
+                opacity = st.slider("Opacity", 0, 255, 128)
+                color = st.color_picker("Text Color", "#FFFFFF")
+                
+                position = st.selectbox("Position", 
+                    ["Center", "Top Left", "Top Right", "Bottom Left", "Bottom Right"])
+                
+                if st.button("Apply Watermark"):
+                    # Convert hex color to RGB
+                    rgb_color = tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
+                    
+                    # Create watermark layer
+                    txt_layer = Image.new('RGBA', image.size, (255, 255, 255, 0))
+                    draw = ImageDraw.Draw(txt_layer)
+                    
+                    # Use default font
+                    try:
+                        font = ImageFont.truetype("arial.ttf", font_size)
+                    except:
+                        font = ImageFont.load_default()
+                    
+                    # Get text bounding box
+                    bbox = draw.textbbox((0, 0), watermark_text, font=font)
+                    text_width = bbox[2] - bbox[0]
+                    text_height = bbox[3] - bbox[1]
+                    
+                    # Calculate position
+                    if position == "Center":
+                        x = (image.width - text_width) // 2
+                        y = (image.height - text_height) // 2
+                    elif position == "Top Left":
+                        x, y = 10, 10
+                    elif position == "Top Right":
+                        x = image.width - text_width - 10
+                        y = 10
+                    elif position == "Bottom Left":
+                        x = 10
+                        y = image.height - text_height - 10
+                    else:  # Bottom Right
+                        x = image.width - text_width - 10
+                        y = image.height - text_height - 10
+                    
+                    # Draw text with opacity
+                    draw.text((x, y), watermark_text, 
+                             fill=(*rgb_color, opacity), font=font)
+                    
+                    # Composite images
+                    watermarked = Image.alpha_composite(image, txt_layer)
+                    
+                    with col2:
+                        st.image(watermarked, caption="Watermarked Image", use_container_width=True)
+                        
+                        # Convert to bytes for download
+                        buf = io.BytesIO()
+                        watermarked.convert("RGB").save(buf, format="PNG")
+                        byte_im = buf.getvalue()
+                        
+                        st.download_button(
+                            label="Download Watermarked Image",
+                            data=byte_im,
+                            file_name="watermarked_image.png",
+                            mime="image/png"
+                        )
+            
+            else:  # Image watermark
+                watermark_file = st.file_uploader("Upload Watermark Image", 
+                                                 type=['png', 'jpg', 'jpeg'])
+                
+                if watermark_file:
+                    watermark_img = Image.open(watermark_file).convert("RGBA")
+                    
+                    scale = st.slider("Watermark Scale (%)", 10, 100, 30)
+                    opacity = st.slider("Opacity", 0, 255, 128)
+                    position = st.selectbox("Position", 
+                        ["Center", "Top Left", "Top Right", "Bottom Left", "Bottom Right"])
+                    
+                    if st.button("Apply Watermark"):
+                        # Resize watermark
+                        new_size = (int(watermark_img.width * scale / 100), 
+                                   int(watermark_img.height * scale / 100))
+                        watermark_resized = watermark_img.resize(new_size, Image.Resampling.LANCZOS)
+                        
+                        # Adjust opacity
+                        watermark_with_opacity = watermark_resized.copy()
+                        alpha = watermark_with_opacity.split()[3]
+                        alpha = alpha.point(lambda p: p * opacity // 255)
+                        watermark_with_opacity.putalpha(alpha)
+                        
+                        # Calculate position
+                        if position == "Center":
+                            x = (image.width - new_size[0]) // 2
+                            y = (image.height - new_size[1]) // 2
+                        elif position == "Top Left":
+                            x, y = 10, 10
+                        elif position == "Top Right":
+                            x = image.width - new_size[0] - 10
+                            y = 10
+                        elif position == "Bottom Left":
+                            x = 10
+                            y = image.height - new_size[1] - 10
+                        else:  # Bottom Right
+                            x = image.width - new_size[0] - 10
+                            y = image.height - new_size[1] - 10
+                        
+                        # Create final image
+                        watermarked = image.copy()
+                        watermarked.paste(watermark_with_opacity, (x, y), watermark_with_opacity)
+                        
+                        with col2:
+                            st.image(watermarked, caption="Watermarked Image", use_container_width=True)
+                            
+                            # Convert to bytes for download
+                            buf = io.BytesIO()
+                            watermarked.convert("RGB").save(buf, format="PNG")
+                            byte_im = buf.getvalue()
+                            
+                            st.download_button(
+                                label="Download Watermarked Image",
+                                data=byte_im,
+                                file_name="watermarked_image.png",
+                                mime="image/png"
+                            )
+
+elif app_mode == "E-Signature Tool":
+    st.header("✍️ E-Signature Tool")
+    st.write("Create and apply digital signatures to documents")
+    
+    tab1, tab2 = st.tabs(["Create Signature", "Apply Signature"])
+    
+    with tab1:
+        st.subheader("Create Your Signature")
+        
+        signature_type = st.radio("Signature Type", ["Text Signature", "Draw Signature"])
+        
+        if signature_type == "Text Signature":
+            signature_text = st.text_input("Enter Your Name", "John Doe")
+            font_size = st.slider("Font Size", 30, 150, 60)
+            color = st.color_picker("Signature Color", "#000080")
+            
+            if st.button("Generate Signature"):
+                # Create signature image
+                img = Image.new('RGBA', (600, 200), (255, 255, 255, 0))
+                draw = ImageDraw.Draw(img)
+                
+                try:
+                    font = ImageFont.truetype("arial.ttf", font_size)
+                except:
+                    font = ImageFont.load_default()
+                
+                rgb_color = tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
+                
+                bbox = draw.textbbox((0, 0), signature_text, font=font)
+                text_width = bbox[2] - bbox[0]
+                text_height = bbox[3] - bbox[1]
+                
+                x = (600 - text_width) // 2
+                y = (200 - text_height) // 2
+                
+                draw.text((x, y), signature_text, fill=(*rgb_color, 255), font=font)
+                
+                # Crop to content
+                img = img.crop(img.getbbox())
+                
+                st.image(img, caption="Your Signature")
+                
+                # Save to session state
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                st.session_state['signature'] = buf.getvalue()
+                
+                st.download_button(
+                    label="Download Signature",
+                    data=st.session_state['signature'],
+                    file_name="signature.png",
+                    mime="image/png"
+                )
+        
+        else:
+            st.info("Upload a signature image you've drawn or created")
+            sig_file = st.file_uploader("Upload Signature Image", type=['png', 'jpg', 'jpeg'])
+            
+            if sig_file:
+                signature = Image.open(sig_file).convert("RGBA")
+                st.image(signature, caption="Uploaded Signature", width=300)
+                
+                buf = io.BytesIO()
+                signature.save(buf, format="PNG")
+                st.session_state['signature'] = buf.getvalue()
+                st.success("Signature saved! Go to 'Apply Signature' tab to use it.")
+    
+    with tab2:
+        st.subheader("Apply Signature to Document")
+        
+        doc_file = st.file_uploader("Upload Document/Image", type=['png', 'jpg', 'jpeg', 'pdf'])
+        
+        if doc_file and 'signature' in st.session_state:
+            if doc_file.type == "application/pdf":
+                st.warning("PDF support requires additional libraries. Please upload an image instead.")
+            else:
+                document = Image.open(doc_file).convert("RGBA")
+                signature = Image.open(io.BytesIO(st.session_state['signature'])).convert("RGBA")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.image(document, caption="Original Document", use_container_width=True)
+                
+                scale = st.slider("Signature Size (%)", 10, 100, 20)
+                position = st.selectbox("Signature Position", 
+                    ["Bottom Right", "Bottom Left", "Top Right", "Top Left", "Center"])
+                
+                if st.button("Apply Signature to Document"):
+                    # Resize signature
+                    new_size = (int(signature.width * scale / 100), 
+                               int(signature.height * scale / 100))
+                    signature_resized = signature.resize(new_size, Image.Resampling.LANCZOS)
+                    
+                    # Calculate position
+                    if position == "Bottom Right":
+                        x = document.width - new_size[0] - 20
+                        y = document.height - new_size[1] - 20
+                    elif position == "Bottom Left":
+                        x, y = 20, document.height - new_size[1] - 20
+                    elif position == "Top Right":
+                        x = document.width - new_size[0] - 20
+                        y = 20
+                    elif position == "Top Left":
+                        x, y = 20, 20
+                    else:  # Center
+                        x = (document.width - new_size[0]) // 2
+                        y = (document.height - new_size[1]) // 2
+                    
+                    # Apply signature
+                    signed_doc = document.copy()
+                    signed_doc.paste(signature_resized, (x, y), signature_resized)
+                    
+                    with col2:
+                        st.image(signed_doc, caption="Signed Document", use_container_width=True)
+                        
+                        # Convert to bytes for download
+                        buf = io.BytesIO()
+                        signed_doc.convert("RGB").save(buf, format="PNG")
+                        byte_im = buf.getvalue()
+                        
+                        st.download_button(
+                            label="Download Signed Document",
+                            data=byte_im,
+                            file_name="signed_document.png",
+                            mime="image/png"
+                        )
+        
+        elif doc_file and 'signature' not in st.session_state:
+            st.warning("Please create or upload a signature in the 'Create Signature' tab first!")
+        else:
+            st.info("Upload a document to apply your signature")
+
+st.sidebar.markdown("---")
+st.sidebar.info("""
+**Features:**
+- Add text or image watermarks
+- Customize opacity, size, and position
+- Create text-based signatures
+- Upload custom signature images
+- Apply signatures to documents
+- Download watermarked/signed files
+""")
